@@ -1,0 +1,11 @@
+# Sample configuration for mcp-llms-txt server
+# Each entry must have a llms_txt URL and optionally a name
+- name: BAMLDocs
+  llms_txt: https://docs.boundaryml.com/llms.txt
+  allowed_domains:
+    - https://docs.boundaryml.com
+
+- name: LangGraphDocs
+  llms_txt: https://langchain-ai.github.io/langgraph/llms.txt
+  allowed_domains:
+    - https://langchain-ai.github.io
