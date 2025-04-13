@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from langgraph.graph import StateGraph, START, END
 
@@ -23,6 +23,7 @@ class AgentState(BaseModel):
     relevant_results: List[Dict[str, Optional[str]]] = []
     answer: Optional[Answer] = None
     critique: Optional[Critique] = None
+    template_feedback: Optional[Dict[str, Any]] = None  # Store template-specific feedback
     attempt_count: int = 1  # number of answer attempts made (for loop control)
 
 @trace
@@ -132,19 +133,54 @@ def answer_node(state: AgentState):
             
     # Call AnswerQuestion with the structured context list
     state.answer = b.AnswerQuestion(question=state.question, context=context_items)
+    
+    # Add some debug logging for the template structure
+    if hasattr(state.answer, 'executive_summary'):
+        print(f"Executive Summary: {state.answer.executive_summary[:100]}...")
+    if hasattr(state.answer, 'key_points') and state.answer.key_points:
+        print(f"Generated {len(state.answer.key_points)} key points")
+    if hasattr(state.answer, 'confidence_score'):
+        print(f"Answer confidence score: {state.answer.confidence_score:.2f}")
+        
     return {"answer": state.answer}
 
 @trace
 def critique_node(state: AgentState):
-    """Use LLM to critique the answer for completeness/correctness."""
-    # Extract the answer string from the state object's 'cited_answer' field
-    answer_text = ""
+    """Use LLM to critique the answer for completeness/correctness and template compliance."""
+    # Format the answer to explicitly show template structure
+    formatted_answer = ""
     if state.answer:
-        # Access the correct field name from the Answer class
-        answer_text = state.answer.cited_answer 
+        # Create a clearly formatted version that shows section headings
+        formatted_answer = (
+            f"## Executive Summary\n{state.answer.executive_summary}\n\n"
+            f"## Detailed Explanation\n{state.answer.detailed_explanation}\n\n"
+            f"## Key Points\n"
+        )
+        # Add key points as bullet points
+        if hasattr(state.answer, 'key_points') and state.answer.key_points:
+            for point in state.answer.key_points:
+                formatted_answer += f"- {point}\n"
+        
+        formatted_answer += f"\n## Complete Answer\n{state.answer.cited_answer}"
+    else:
+        # If no structured answer available, use just the cited_answer
+        formatted_answer = state.answer.cited_answer if state.answer else ""
     
-    state.critique = b.CritiqueAnswer(question=state.question, answer=answer_text)
-    return {"critique": state.critique}
+    # Send the formatted answer to the critique function
+    state.critique = b.CritiqueAnswer(question=state.question, answer=formatted_answer)
+    
+    # Store template-specific feedback
+    if state.critique:
+        state.template_feedback = {
+            "followed": state.critique.template_followed,
+            "section_feedback": state.critique.section_feedback,
+            "suggestions": state.critique.improvement_suggestions
+        }
+    
+    return {
+        "critique": state.critique,
+        "template_feedback": state.template_feedback
+    }
 
 @trace
 def additional_search_node(state: AgentState):
@@ -152,7 +188,28 @@ def additional_search_node(state: AgentState):
     missing = state.critique.missing_info if state.critique else ""
     missing = missing.strip()
     new_info_results: List[Dict[str, Optional[str]]] = [] # Expecting list of dicts
+    
+    # Check if we have template feedback
+    template_issues = False
+    if state.template_feedback:
+        template_followed = state.template_feedback.get("followed", True)
+        template_issues = not template_followed
+        
+        # If there are template issues but no specific missing info query,
+        # we should still search to improve the answer content
+        if template_issues and not missing:
+            print("Template structure issues detected but no missing info specified.")
+            # Use the original question as fallback if missing info isn't specific
+            missing = state.question
+            
+        # Check for specific citation or source issues in the feedback
+        elif "citation" in missing.lower() or "reference" in missing.lower():
+            print(f"Citation issues detected: {missing}")
+            # For citation issues, we might want to search for authoritative sources
+            missing = f"authoritative sources {state.question}"
+    
     if missing:
+        print(f"Searching for additional information: {missing}")
         # Use the missing info string as a new search query
         new_info_results = web_search(missing, max_results=3) # Returns list of dicts
         
@@ -183,33 +240,69 @@ class DeepResearchAgent:
         # Execute the graph
         final_state: AgentState = self.graph.invoke(state)  # Use invoke() instead of run()
         
-        # Return the actual answer string from the 'cited_answer' field
-        # Also include references if available (optional, depending on use case)
-        final_answer_text = ""
-        references_list = []
-        if final_state['answer']:
-            final_answer_text = final_state['answer'].cited_answer
-            if hasattr(final_state['answer'], 'references') and final_state['answer'].references:
+        # Format the answer using template structure if available
+        output = ""
+        
+        if final_state.get('answer'):
+            answer = final_state['answer']
+            
+            # Check if we have the template fields
+            has_template = (hasattr(answer, 'executive_summary') and 
+                          hasattr(answer, 'detailed_explanation') and 
+                          hasattr(answer, 'key_points'))
+            
+            if has_template:
+                # Format with template structure
+                output += f"## Executive Summary\n{answer.executive_summary}\n\n"
+                output += f"## Detailed Explanation\n{answer.detailed_explanation}\n\n"
+                
+                # Format key points as bullet list
+                output += "## Key Points\n"
+                for point in answer.key_points:
+                    output += f"- {point}\n"
+                output += "\n"
+                
+                # Add confidence if available
+                if hasattr(answer, 'confidence_score'):
+                    output += f"_Answer confidence: {answer.confidence_score:.2f}/1.0_\n\n"
+            else:
+                # Fall back to cited_answer if template isn't available
+                output = answer.cited_answer
+            
+            # Add template feedback note if there are template issues
+            template_note = ""
+            if final_state.get('template_feedback') and not final_state['template_feedback'].get('followed', True):
+                template_note = "\n\n**Note:** This answer could be improved by following the recommended template structure."
+                
+                # If there are specific improvement suggestions, include the first 2
+                if 'suggestions' in final_state['template_feedback'] and final_state['template_feedback']['suggestions']:
+                    template_note += "\nSuggested improvements:"
+                    for i, suggestion in enumerate(final_state['template_feedback']['suggestions'][:2]):
+                        template_note += f"\n- {suggestion}"
+            
+            output += template_note
+            
+            # Process and add references if available
+            if hasattr(answer, 'references') and answer.references:
                  # Create a list of tuples (index, formatted_string) for sorting
                  raw_references = []
-                 for ref in final_state['answer'].references:
+                 for ref in answer.references:
                      if ref.source:
                          # Store index as integer for proper sorting
                          raw_references.append((ref.index, f"[{ref.index}] {ref.source}"))
 
-                 # Sort based on the index (the first element of the tuple)
+                 # Sort based on the index
                  raw_references.sort(key=lambda item: item[0])
 
                  # Extract the sorted formatted strings
                  references_list = [item[1] for item in raw_references]
-
-        # Combine answer and references for output (adjust formatting as needed)
-        output = final_answer_text
-        if references_list:
-             # The join part remains the same, just using the sorted list
-             output += "\n\nReferences:\n" + "\n".join(f"- {ref_source}" for ref_source in references_list)
-
-        return output or "No answer generated." # Return the combined string
+                 
+                 # Add references section
+                 if references_list:
+                     output += "\n\n## References\n" + "\n".join(f"- {ref_source}" for ref_source in references_list)
+            
+        # If no answer was generated, provide a helpful message
+        return output or "No answer could be generated. Please try rephrasing your question."
 
 def build_agent_graph():
     # Build the LangGraph state graph

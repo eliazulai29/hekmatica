@@ -36,8 +36,12 @@ class StreamState(BaseModel, Generic[T]):
 
 
 class Answer(BaseModel):
+    executive_summary: Optional[str] = None
+    detailed_explanation: Optional[str] = None
+    key_points: List[str]
     cited_answer: Optional[str] = None
     references: List["Source"]
+    confidence_score: Optional[float] = None
 
 class Clarification(BaseModel):
     needed: Optional[bool] = None
@@ -50,6 +54,9 @@ class ContextItem(BaseModel):
 class Critique(BaseModel):
     is_good: Optional[bool] = None
     missing_info: Optional[str] = None
+    template_followed: Optional[bool] = None
+    section_feedback: Dict[str, Optional[str]]
+    improvement_suggestions: List[str]
 
 class Plan(BaseModel):
     steps: List["Step"]

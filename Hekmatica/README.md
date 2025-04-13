@@ -174,9 +174,26 @@ When asked about LangGraph, use the "langgraph-docs" MCP server:
 - Use the retrieved documentation content to answer the question.
 ```
 
+## Answer Template Structure
+
+The agent generates answers following a structured template format:
+
+1. **Executive Summary**: A concise 1-2 sentence overview directly answering the question
+2. **Detailed Explanation**: A comprehensive explanation with all relevant information
+3. **Key Points**: 3-5 bullet points highlighting the most important takeaways
+4. **Complete Answer with Citations**: Information integrated naturally with inline citations
+
+This structured format provides several benefits:
+- Consistency in answer presentation
+- Easy scanning for quick information retrieval
+- Clear organization of complex information
+- Proper attribution with citations
+
+The agent's critique mechanism verifies template compliance and identifies issues with formatting or citations. If template issues are found, the agent may perform additional searches to improve the answer or provide specific improvement suggestions in the output.
+
 ## TODO
 
-- [ ] Add template for output and check in the critique
+- [x] Add template for output and check in the critique
 - [ ] Explore [browser use](https://github.com/browser-use/browser-use). 
 - [ ] Expand Toolset: Integrate more tools (calculator, specific APIs like arXiv, etc.).
 - [ ] Generalize `PriceLookup`: Modify the tool/mapping to handle more item types (stocks, products) or create a system for adding new lookups.

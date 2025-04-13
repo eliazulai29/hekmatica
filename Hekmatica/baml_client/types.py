@@ -46,8 +46,12 @@ class Tool(str, Enum):
     PriceLookup = "PriceLookup"
 
 class Answer(BaseModel):
+    executive_summary: str
+    detailed_explanation: str
+    key_points: List[str]
     cited_answer: str
     references: List["Source"]
+    confidence_score: float
 
 class Clarification(BaseModel):
     needed: bool
@@ -60,6 +64,9 @@ class ContextItem(BaseModel):
 class Critique(BaseModel):
     is_good: bool
     missing_info: str
+    template_followed: bool
+    section_feedback: Dict[str, str]
+    improvement_suggestions: List[str]
 
 class Plan(BaseModel):
     steps: List["Step"]
