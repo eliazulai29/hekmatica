@@ -1,0 +1,22 @@
+[project]
+name = "hekmatica"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.poetry]
+name = "hekmatica"
+version = "0.1.0"
+description = ""
+authors = ["Eli Azulai <eli.a@taboola.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
